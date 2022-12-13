@@ -1,12 +1,13 @@
-use std::io::Write;
+use std::io::{self, Write};
 
-pub struct Printer();
+// A type that makes producing colorful output easier.
+pub struct Printer(String);
 
 macro_rules! printer_impl {
     ($($color:ident=$color_str:expr)*) => {
         $(
-            pub fn $color(self, s: impl std::fmt::Display) -> Self {
-                print!("{}{s}\x1b[0m", $color_str);
+            pub fn $color(mut self, s: impl std::fmt::Display) -> Self {
+                self.0.push_str(&format!("{}{s}\x1b[0m", $color_str));
                 self
             }
         )*
@@ -14,22 +15,31 @@ macro_rules! printer_impl {
 }
 
 impl Printer {
-    /// Make sure all changes are emitted
-    pub fn finish(self) -> Self {
-        let _ = std::io::stdout().flush();
+    pub const fn new() -> Self {
+        Self(String::new())
+    }
+
+    // Add newline to contents
+    pub fn newline(mut self) -> Self {
+        self.0.push('\n');
         self
     }
 
-    /// Make sure all changes are emitted and append newline to end
-    pub fn finish_nl(self) -> Self {
-        let _ = std::io::stdout().flush();
-        println!();
+    // Add non-colored text
+    pub fn default(mut self, s: impl std::fmt::Display) -> Self {
+        self.0.push_str(&s.to_string());
         self
     }
 
-    pub fn default(self, s: impl std::fmt::Display) -> Self {
-        print!("{s}");
-        self
+    // Print contents
+    pub fn print(self) {
+        print!("{}", self.0);
+        let _ = io::stdout().flush();
+    }
+
+    // Return the internal buffer
+    pub fn inner(self) -> String {
+        self.0
     }
 
     printer_impl!(

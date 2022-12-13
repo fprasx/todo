@@ -1,21 +1,19 @@
-// TODO: add comments
+// TODO: add comments, continue archive work
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::fmt::Display;
 use std::fs;
 use std::path::Path;
-use std::str::FromStr;
 use std::{convert::From, io};
 
 use anyhow::ensure;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
+use serde_with::serde_as;
 
 use todo::color::{Printer, RED, RESET};
 
-const PRINTER: Printer = Printer();
+const PRINTER: Printer = Printer::new();
 const HOME: &str = env!("HOME");
 
 /// Make sure the todos file exists, otherwise create it
@@ -33,8 +31,21 @@ fn file_setup() -> anyhow::Result<()> {
 fn main() -> anyhow::Result<()> {
     file_setup()?;
     let args = Cli::parse();
+
+    // Retrieve tasks
     let tasks = fs::read_to_string(format!("{HOME}/.rusty-todo.json"))?;
-    let mut t: Tasks = serde_json::from_str(&tasks)?;
+    let mut t: Todos = serde_json::from_str(&tasks)?;
+
+    // let db = Database {
+    //     tasks: t.0,
+    //     archive: BTreeMap::new()
+    // };
+
+    // println!("{:?}", serde_json::to_string(&db)?);
+
+    // return Ok(());
+
+    // Do what the user asked
     match args.command {
         Command::Delete { id } => t.delete(id),
         Command::Add {
@@ -46,14 +57,17 @@ fn main() -> anyhow::Result<()> {
         }
         Command::List => t.list(),
     }
+
+    // Write updates back to file
     fs::write(
         format!("{HOME}/.rusty-todo.json"),
         serde_json::to_string_pretty(&t)?,
     )?;
+
     Ok(())
 }
 
-impl Tasks {
+impl Todos {
     // TODO: check for collisions?
     fn add(&mut self, todo: String, priority: u8, group: Option<String>) -> anyhow::Result<()> {
         ensure!(!todo.is_empty(), "task cannot be empty");
@@ -77,49 +91,36 @@ impl Tasks {
         Ok(())
     }
 
-    fn list(&self) {
-        // If on a loop iteration, the previous priority
-        // was different, we emit a newline to make
-        // sections
+    fn list(&mut self) {
+        // If on a loop iteration, the previous priority or group
+        // was different, we emit a newline to make sections.
+        // This works nicely because of the way Ord is
+        // implemented for Descriptor and because BTreeMap::iter
+        // returns items in sorted order
         let mut previous_priority: Option<u8> = None;
+        let mut previous_group: &Option<String> = &None;
 
         for (
-            Descriptor {
-                priority,
-                id,
-                group,
+            desc @ Descriptor {
+                priority, group, ..
             },
             todo,
         ) in self.0.iter().rev()
         {
-            // Compare to previous priority (if it exists).
-            // It will be None on the first loop iteration
+            // If priority or group changes, print a newline
             if let Some(inner) = previous_priority {
-                if inner != *priority {
-                    println!();
+                if inner != *priority || previous_group != group {
+                    println!()
                 }
             }
             previous_priority = Some(*priority);
-
-            // stars indicate priority
-            let stars = match (*priority).clamp(0, 3) {
-                0 => " ".into(),
-                x => format!(" ({})", "*".repeat(x.into())),
-            };
-
-            // Format the part of the output determining the group
-            let group = if let Some(group) = group {
-                format!(" ({group})")
-            } else {
-                "".into()
-            };
+            previous_group = group;
 
             PRINTER
                 .default(todo)
-                .green(&format!(" ({id})"))
-                .yellow(group)
-                .bred(stars)
-                .finish_nl();
+                .default(desc.to_string())
+                .newline()
+                .print();
         }
     }
 
@@ -149,18 +150,26 @@ impl Tasks {
         let ids = match id {
             Some(id) => vec![id],
             None => {
-                // TODO: improve ux
+                // Prompt user for input
                 println!("No Todo selected: which one(s) would you like to delete?");
                 self.list();
+                PRINTER.green("> ").print();
+
                 let tasks = get_user_input(None);
+
+                // Parse id's separated by commas
                 let (ids, errs): (Vec<_>, Vec<_>) = tasks
                     .split(',')
                     .map(str::trim)
                     .map(str::parse::<usize>)
                     .partition(Result::is_ok);
+
+                // Print out any errors
                 for err in errs {
-                    println!("{}", err.unwrap_err());
+                    println!("Error parsing todo indices: {}", err.unwrap_err());
                 }
+
+                // Return all Ok's
                 ids.into_iter().map(Result::unwrap).collect()
             }
         };
@@ -177,13 +186,15 @@ impl Tasks {
         for desc @ Descriptor { id, .. } in remove {
             match self.0.remove(&desc) {
                 Some(todo) => {
+                    // Confirm the successful deletion
                     PRINTER
                         .default("Finished todo ")
-                        .red(format!("({id})"))
+                        .green(format!("({id})"))
                         .default(": ")
                         .default(todo)
                         .default(" :)")
-                        .finish_nl();
+                        .newline()
+                        .print();
                 }
                 None => println!("There was no task with index {RED}({id}){RESET}"),
             }
@@ -240,67 +251,71 @@ enum Command {
     List,
 }
 
-struct App {
-    tasks: Tasks,
-    archive: Tasks,
-    args: Cli,
-}
+// JSON keys cannot be structs so we use serde_as
+// to serialize the BTreeMap as a Vec<Descriptor, String>
+// #[serde_as]
+// #[derive(Debug, Serialize, Deserialize)]
+// struct Database {
+//     #[serde_as(as = "Vec<(_, _)>")]
+//     tasks: BTreeMap<Descriptor, String>,
+//     #[serde_as(as = "Vec<(_, _)>")]
+//     archive: BTreeMap<Descriptor, String>,
+// }
 
+// JSON keys cannot be structs so we use serde_as
+// to serialize the BTreeMap as a Vec<Descriptor, String>
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize)]
-struct Tasks(BTreeMap<Descriptor, String>);
+struct Todos(#[serde_as(as = "Vec<(_, _)>")] BTreeMap<Descriptor, String>);
 
-#[derive(Eq, PartialEq, SerializeDisplay, DeserializeFromStr, Debug, Clone)]
+// Describes the attributes of a todo. Indices should be unique
+// when used in the todos struct
+#[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 struct Descriptor {
     priority: u8,
     id: usize,
     group: Option<String>,
 }
 
+// Format looks like:
+// (index) (group) (***)
+// where number of stars indicates priority
+// Index is green, group is yellow, and priority is bold red
 impl Display for Descriptor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Format:
-        // priotity-id-{0 for None, 1 for Some}group
-        match &self.group {
-            Some(group) => f.write_fmt(format_args!("{}-{}-1{}", self.priority, self.id, group)),
-            None => f.write_fmt(format_args!("{}-{}-0", self.priority, self.id)),
-        }
-    }
-}
+        let Descriptor {
+            priority,
+            id,
+            group,
+        } = self;
+        // stars indicate priority
+        let stars = match (*priority).clamp(0, 3) {
+            0 => " ".into(),
+            x => format!(" ({})", "*".repeat(x.into())),
+        };
 
-impl FromStr for Descriptor {
-    type Err = Box<dyn Error>;
-
-    // Parsing out of the format:
-    // priotity-id-{0 for None, 1 for Some}group
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut split = s.split('-').peekable();
-        let priority = split.next().ok_or("no priority")?.parse::<u8>()?;
-        let id = split.next().ok_or("no id")?.parse::<usize>()?;
-
-        // If there are no more segments, there is no todo
-        split.peek().ok_or("no todo provided")?;
-
-        // Collect the rest of the splits into a string
-        let rest = split.collect::<String>();
-
-        // Option<String> was None if the rest starts with 0
-        if rest.starts_with('0') {
-            Ok(Descriptor {
-                priority,
-                id,
-                group: None,
-            })
+        // Format the part of the output determining the group
+        let group = if let Some(group) = group {
+            format!(" ({group})")
         } else {
-            Ok(Descriptor {
-                priority,
-                id,
-                // Skip the 1 indicator
-                group: Some(String::from(&rest[1..])),
-            })
-        }
+            "".into()
+        };
+
+        write!(
+            f,
+            "{}",
+            PRINTER
+                .green(&format!(" ({id})"))
+                .yellow(group)
+                .bred(stars)
+                .inner()
+        )?;
+        Ok(())
     }
 }
 
+// Order descriptors so we can get a sensible printing order.
+// Order first consider priority, then group, then id
 impl Ord for Descriptor {
     fn cmp(&self, other: &Self) -> Ordering {
         // First compare by priority
@@ -320,10 +335,14 @@ impl Ord for Descriptor {
         }
 
         // Then compare by id
+        // lower id = higher place on list
         match self.id.cmp(&other.id) {
             Ordering::Equal => {}
-            ord => {
-                return ord;
+            Ordering::Less => {
+                return Ordering::Greater;
+            }
+            Ordering::Greater => {
+                return Ordering::Less;
             }
         }
 
