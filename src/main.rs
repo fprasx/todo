@@ -1,4 +1,3 @@
-// TODO: add comments, continue archive work
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -36,15 +35,6 @@ fn main() -> anyhow::Result<()> {
     let tasks = fs::read_to_string(format!("{HOME}/.rusty-todo.json"))?;
     let mut t: Todos = serde_json::from_str(&tasks)?;
 
-    // let db = Database {
-    //     tasks: t.0,
-    //     archive: BTreeMap::new()
-    // };
-
-    // println!("{:?}", serde_json::to_string(&db)?);
-
-    // return Ok(());
-
     // Do what the user asked
     match args.command {
         Command::Delete { id } => t.delete(id),
@@ -56,6 +46,13 @@ fn main() -> anyhow::Result<()> {
             t.add(text, priority, group)?;
         }
         Command::List => t.list(),
+        Command::Edit {
+            id,
+            priority,
+            group,
+        } => {
+            t.edit(id, priority, group);
+        }
     }
 
     // Write updates back to file
@@ -68,6 +65,33 @@ fn main() -> anyhow::Result<()> {
 }
 
 impl Todos {
+    fn edit(&mut self, id: usize, priority: u8, group: Option<String>) {
+        let bundle = self.get(id);
+        if let Some((desc, text)) = bundle {
+            let new_desc = Descriptor {
+                priority: priority as usize,
+                id,
+                group,
+            };
+            self.0.remove(&desc);
+            self.0.insert(new_desc, text);
+            self.reindex();
+        } else {
+            PRINTER
+                .default("Task ")
+                .red(format!("({id})"))
+                .default(" does not exist")
+                .print();
+        }
+    }
+
+    fn get(&self, id: usize) -> Option<(Descriptor, String)> {
+        self.0
+            .iter()
+            .find(|(desc, _)| desc.id == id as usize)
+            .map(|(desc, text)| (desc.clone(), text.clone()))
+    }
+
     // TODO: check for collisions?
     fn add(&mut self, todo: String, priority: u8, group: Option<String>) -> anyhow::Result<()> {
         ensure!(!todo.is_empty(), "task cannot be empty");
@@ -78,7 +102,7 @@ impl Todos {
 
         self.0.insert(
             Descriptor {
-                priority,
+                priority: priority as usize,
                 // Take 1 + the highest index
                 id: self.0.keys().map(|d| d.id).max().unwrap_or(0) + 1,
                 group,
@@ -97,7 +121,7 @@ impl Todos {
         // This works nicely because of the way Ord is
         // implemented for Descriptor and because BTreeMap::iter
         // returns items in sorted order
-        let mut previous_priority: Option<u8> = None;
+        let mut previous_priority: Option<usize> = None;
         let mut previous_group: &Option<String> = &None;
 
         for (
@@ -242,25 +266,24 @@ enum Command {
         /// for medium priority, and 3+ times for high
         /// priority.
         #[arg(short, long, action = clap::ArgAction::Count)]
-        priority: u8,
+        priority: u8, // must be u8, otherwise clap erros
         #[arg(short, long)]
         group: Option<String>,
     },
     /// List all todos
     #[command(visible_alias = "l")]
     List,
+    /// Edit the priority and group of a command using the same syntax as
+    /// adding a command
+    #[command(visible_alias = "e")]
+    Edit {
+        id: usize,
+        #[arg(short, long, action = clap::ArgAction::Count)]
+        priority: u8, // must be u8, otherwise clap erros
+        #[arg(short, long)]
+        group: Option<String>,
+    },
 }
-
-// JSON keys cannot be structs so we use serde_as
-// to serialize the BTreeMap as a Vec<Descriptor, String>
-// #[serde_as]
-// #[derive(Debug, Serialize, Deserialize)]
-// struct Database {
-//     #[serde_as(as = "Vec<(_, _)>")]
-//     tasks: BTreeMap<Descriptor, String>,
-//     #[serde_as(as = "Vec<(_, _)>")]
-//     archive: BTreeMap<Descriptor, String>,
-// }
 
 // JSON keys cannot be structs so we use serde_as
 // to serialize the BTreeMap as a Vec<Descriptor, String>
@@ -272,7 +295,7 @@ struct Todos(#[serde_as(as = "Vec<(_, _)>")] BTreeMap<Descriptor, String>);
 // when used in the todos struct
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 struct Descriptor {
-    priority: u8,
+    priority: usize,
     id: usize,
     group: Option<String>,
 }
@@ -291,7 +314,7 @@ impl Display for Descriptor {
         // stars indicate priority
         let stars = match (*priority).clamp(0, 3) {
             0 => " ".into(),
-            x => format!(" ({})", "*".repeat(x.into())),
+            x => format!(" ({})", "*".repeat(x)),
         };
 
         // Format the part of the output determining the group
