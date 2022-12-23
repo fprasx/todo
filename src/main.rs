@@ -124,6 +124,11 @@ impl Todos {
         let mut previous_priority: Option<usize> = None;
         let mut previous_group: &Option<String> = &None;
 
+        if self.0.is_empty() {
+            PRINTER.purple("Nothing!").newline().print();
+            return;
+        }
+
         for (
             desc @ Descriptor {
                 priority, group, ..
@@ -216,7 +221,7 @@ impl Todos {
                         .green(format!("({id})"))
                         .default(": ")
                         .default(todo)
-                        .default(" :)")
+                        .purple(" :)")
                         .newline()
                         .print();
                 }
