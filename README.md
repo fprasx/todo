@@ -25,7 +25,7 @@ same group are grouped together.
 The numbers in parentheses allow us to access each todo. For example, deleting
 a todo looks like:
 ```
-$ todo - 1
+$ todo - 2
 Finished todo (2): this is a todo :)
 ```
 
