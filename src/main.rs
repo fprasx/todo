@@ -18,7 +18,7 @@ const HOME: &str = env!("HOME");
 /// Make sure the todos file exists, otherwise create it
 fn file_setup() -> anyhow::Result<()> {
     match Path::try_exists(Path::new(&format!("{HOME}/.rusty-todo.json"))) {
-        Ok(true) => return Ok(()),
+        Ok(true) => { return Ok(()) },
         // Broken symlinks or errors; see docs
         Ok(false) | Err(_) => {
             fs::File::create(Path::new(&format!("{HOME}/.rusty-todo.json")))?;

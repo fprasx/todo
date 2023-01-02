@@ -6,6 +6,7 @@ pub struct Printer(String);
 macro_rules! printer_impl {
     ($($color:ident=$color_str:expr)*) => {
         $(
+            #[must_use = "This will not do anything if not printed out with .print()"]
             pub fn $color(mut self, s: impl std::fmt::Display) -> Self {
                 self.0.push_str(&format!("{}{s}\x1b[0m", $color_str));
                 self
@@ -19,12 +20,14 @@ impl Printer {
         Self(String::new())
     }
 
+    #[must_use = "This will not do anything if not printed out with .print()"]
     // Add newline to contents
     pub fn newline(mut self) -> Self {
         self.0.push('\n');
         self
     }
 
+    #[must_use = "This will not do anything if not printed out with .print()"]
     // Add non-colored text
     pub fn default(mut self, s: impl std::fmt::Display) -> Self {
         self.0.push_str(&s.to_string());
